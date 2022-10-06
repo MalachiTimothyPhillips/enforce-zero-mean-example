@@ -1,0 +1,50 @@
+//
+// nekRS User Defined File
+//
+
+#include <math.h>
+#include "udf.hpp"
+
+static dfloat totalDofs;
+
+/* UDF Functions */                                                      
+
+void UDF_LoadKernels(occa::properties& kernelInfo)
+{
+}
+
+void UDF_Setup(nrs_t *nrs)
+{
+ // set IC
+ mesh_t *mesh = nrs->meshV;
+ for (int n=0; n<mesh->Np*mesh->Nelements; n++) {
+   dfloat x = mesh->x[n];
+   dfloat y = mesh->y[n];
+   dfloat z = mesh->z[n];
+   nrs->U[n+0*nrs->fieldOffset] = sin(x)*cos(y)*cos(z);;
+   nrs->U[n+1*nrs->fieldOffset] = -cos(x)*sin(y)*cos(z); 
+   nrs->U[n+2*nrs->fieldOffset] = 0; 
+   nrs->cds->S[n] = 1.0;
+ }
+
+ totalDofs = mesh->Nlocal;
+ MPI_Allreduce(MPI_IN_PLACE, &totalDofs, 1, MPI_DFLOAT, MPI_SUM, platform->comm.mpiComm);
+}
+
+void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
+{
+  auto * mesh = nrs->meshV;
+  const auto avgT = platform->linAlg->sum(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm) / totalDofs;
+
+  // T = T - T_avg
+  platform->linAlg->add(mesh->Nlocal, -avgT, nrs->cds->o_S);
+
+  // double check that we did this correctly: 0 mean implies sum is also 0
+  const auto sumT = platform->linAlg->sum(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+  if(platform->comm.mpiRank == 0){
+    std::cout << "sumT = " << sumT << "\n";
+  }
+
+  MPI_Finalize();
+  exit(EXIT_SUCCESS);
+}
